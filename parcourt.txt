@@ -1,0 +1,2 @@
+1. Installer la package
+composer require tymon/jwt-auth
