@@ -3,16 +3,19 @@
 namespace App\Http\Controllers\API;
 
 use App\Models\User;
+use Illuminate\Support\Str;
+use App\Jobs\VerifyUserJobs;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:api', ['except' => ['login', 'register']]);
+        $this->middleware('auth:api', ['except' => ['login', 'register', 'CheckEmail']]);
     }
 
     public function login(Request $request){
@@ -46,8 +49,24 @@ class AuthController extends Controller
 
         $user = User::create(array_merge(
             $validator->validated(),
-            ['password' => bcrypt($request->password)]
+            [
+                'password' => bcrypt($request->password),
+                'slug'     => Str::random(15),
+                'token'   => Str::random(20),
+                'status'   => 'active'
+            ]
         ));
+
+        if($user){
+            $details = [
+                'name' => $user->name,
+                'email' => $user->email,
+                'hasEmail' => Crypt::encrypt($user->email),
+                'token' => $user->token
+            ];
+
+            dispatch(new VerifyUserJobs($details));
+        }
 
         return response()->json([
             'message' => 'User successfully registered',
@@ -79,5 +98,20 @@ class AuthController extends Controller
         ]);
     }
 
-    
+    public function CheckEmail($token, $hasEmail){
+        $user = User::where([
+            ['email', Crypt::decrypt($hasEmail)],
+            ['token', $token]
+        ])->first();
+
+        if($token == $user->token){
+            $user->update([
+                'verify' => true,
+                'token'  => null,
+            ]);
+
+            return redirect()->to('http://192.168.1.140:8000/verify/success');
+        }
+        return redirect()->to('http://192.168.1.140:8000/verify/invalid_token');
+    }
 }
